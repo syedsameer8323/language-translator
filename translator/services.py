@@ -17,12 +17,17 @@ What it does now
 4. Reports which languages were found, so the UI can show them.
 """
 
+import logging
+import os
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 from langdetect import DetectorFactory, LangDetectException, detect
+
+log = logging.getLogger("translator")
 
 DetectorFactory.seed = 0  # make language detection deterministic
 
@@ -186,6 +191,26 @@ def _chunks(text, limit):
     return pieces
 
 
+def _google_cloud(text, source, target):
+    """Official Google Cloud Translation API (needs GOOGLE_TRANSLATE_API_KEY).
+
+    Most reliable option on a hosted server: the free web endpoints often
+    block shared cloud IP addresses.
+    """
+    key = os.environ.get("GOOGLE_TRANSLATE_API_KEY")
+    if not key:
+        raise TranslationError("GOOGLE_TRANSLATE_API_KEY is not set.")
+    payload = {"q": text, "target": target, "format": "text"}
+    if source != "auto":
+        payload["source"] = source
+    response = requests.post(
+        "https://translation.googleapis.com/language/translate/v2",
+        params={"key": key}, data=payload, timeout=15,
+    )
+    response.raise_for_status()
+    return response.json()["data"]["translations"][0]["translatedText"]
+
+
 def _google(text, source, target):
     out = GoogleTranslator(source=source, target=target).translate(text)
     if not out:
@@ -202,8 +227,10 @@ def _mymemory(text, source, target):
             source = "en"
     if source not in LANG_BY_CODE:
         source = "en"
+    # Giving an email raises MyMemory's free daily limit (set MYMEMORY_EMAIL).
     translator = MyMemoryTranslator(
-        source=LANG_BY_CODE[source]["mm"], target=LANG_BY_CODE[target]["mm"]
+        source=LANG_BY_CODE[source]["mm"], target=LANG_BY_CODE[target]["mm"],
+        email=os.environ.get("MYMEMORY_EMAIL"),
     )
     parts = [translator.translate(piece) for piece in _chunks(text, 450)]
     parts = [p for p in parts if p]
@@ -213,13 +240,23 @@ def _mymemory(text, source, target):
 
 
 def translate_chunk(text, source, target):
-    """Translate one run: Google first, MyMemory as a backup."""
+    """Translate one run, trying each backend in turn and logging failures."""
     if source == target:
         return text
-    try:
-        return _google(text, source, target)
-    except Exception:
-        return _mymemory(text, source, target)
+    backends = []
+    if os.environ.get("GOOGLE_TRANSLATE_API_KEY"):
+        backends.append(("google-cloud", _google_cloud))
+    backends += [("google-free", _google), ("mymemory", _mymemory)]
+
+    last_error = None
+    for name, backend in backends:
+        try:
+            return backend(text, source, target)
+        except Exception as exc:  # noqa: BLE001 - we want to try the next backend
+            last_error = exc
+            # This line shows up in the Render logs and tells you what went wrong.
+            log.warning("Translation backend %s failed: %s: %s", name, type(exc).__name__, exc)
+    raise last_error
 
 
 def _translate_run(args):
@@ -283,8 +320,12 @@ def translate_text(text, source, target):
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(_translate_run, jobs))
     except Exception as exc:
+        log.error("All translation backends failed: %s: %s", type(exc).__name__, exc)
+        busy = any(k in f"{type(exc).__name__} {exc}" for k in ("429", "TooManyRequests", "quota", "limit"))
         raise TranslationError(
-            "Translation couldn't be completed. Check your internet connection and try again."
+            "The translation service is busy right now. Please try again in a minute."
+            if busy else
+            "Translation couldn't be completed. Please try again in a moment."
         ) from exc
 
     translated = "".join(results).strip()
