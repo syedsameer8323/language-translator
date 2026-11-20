@@ -1,0 +1,117 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordBridge — Language Translator</title>
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <script src="{% static 'js/speech.js' %}" defer></script>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="topbar">
+            <a class="brand" href="/">
+                <span class="brand-mark">文</span>
+                <span>WordBridge<span class="brand-dot">.</span></span>
+            </a>
+            <span class="top-label">Type, speak or paste. Translate in seconds.</span>
+        </header>
+
+        <main>
+            <section class="intro">
+                <h1>Words connect<br><span>worlds.</span></h1>
+                <p>Translate between {{ languages|length }} languages, including text that mixes two of them.</p>
+            </section>
+
+            <section class="translator-card">
+                <div class="card-heading">
+                    <h2>What would you like to say?</h2>
+                    <span class="live-badge" id="state-badge" data-state="ready"><i></i><b id="state-text">Ready</b></span>
+                </div>
+
+                <form method="post" id="translate-form" novalidate>
+                    {% csrf_token %}
+
+                    <!-- One place to choose languages: the microphone listens in the "From" language -->
+                    <div class="language-bar">
+                        <label class="lang-field">
+                            <span class="lang-caption">From</span>
+                            <select name="source_language" id="source-language" aria-label="Translate from">
+                                <option value="auto" data-speech="" {% if selected_source == "auto" %}selected{% endif %}>Auto-detect</option>
+                                {% for lang in languages %}
+                                <option value="{{ lang.code }}" data-speech="{{ lang.speech }}" {% if selected_source == lang.code %}selected{% endif %}>{{ lang.name }} · {{ lang.native }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+
+                        <button type="button" class="swap-button" id="swap-languages" aria-label="Swap languages" title="Swap languages">⇄</button>
+
+                        <label class="lang-field">
+                            <span class="lang-caption">To</span>
+                            <select name="target_language" id="target-language" aria-label="Translate to">
+                                {% for lang in languages %}
+                                <option value="{{ lang.code }}" data-speech="{{ lang.speech }}" {% if selected_target == lang.code %}selected{% endif %}>{{ lang.name }} · {{ lang.native }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="text-panels">
+                        <!-- Input -->
+                        <div class="text-panel source-panel">
+                            <textarea id="source-text" name="text" maxlength="{{ max_chars }}" placeholder="Type, paste, or tap the microphone and speak…" aria-label="Text to translate">{{ text }}</textarea>
+
+                            <p id="speech-status" class="speech-status" role="status" aria-live="polite"></p>
+
+                            <div class="panel-toolbar">
+                                <button type="button" id="mic-button" class="tool-button mic-button" aria-pressed="false">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z"/></svg>
+                                    <span id="mic-label">Speak</span>
+                                </button>
+                                <button type="button" id="clear-button" class="tool-button ghost">Clear</button>
+                                <span class="char-count" id="char-count">0 / {{ max_chars }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Output -->
+                        <div class="text-panel result-panel">
+                            <div id="result-area" class="result-area" aria-live="polite">
+                                {% if translated_text %}
+                                    <div class="translated-output" id="translated-output">{{ translated_text }}</div>
+                                {% else %}
+                                    <div class="empty-result" id="empty-result">
+                                        <span class="empty-icon">文</span>
+                                        <p>Your translation will appear here.</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <div class="panel-toolbar">
+                                <button type="button" id="copy-button" class="tool-button ghost" {% if not translated_text %}disabled{% endif %}>Copy</button>
+                                <button type="button" id="listen-button" class="tool-button ghost" {% if not translated_text %}disabled{% endif %}>Listen</button>
+                                <span class="detected-note" id="detected-note">{% if detected_language %}Detected: <strong>{{ detected_language }}</strong>{% endif %}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="error-message" id="error-box" role="alert" {% if not error %}hidden{% endif %}><span>!</span><p id="error-text">{{ error }}</p></div>
+
+                    <div class="form-bottom">
+                        <label class="auto-toggle">
+                            <input type="checkbox" id="auto-translate" checked>
+                            <span>Translate when I stop speaking</span>
+                        </label>
+                        <button type="submit" class="translate-button" id="translate-button">Translate</button>
+                    </div>
+                </form>
+            </section>
+
+            <p class="below-note">Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to translate quickly.</p>
+        </main>
+
+        <footer>WordBridge · Built with Django &amp; Python</footer>
+    </div>
+
+</body>
+</html>

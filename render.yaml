@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: wordbridge
+    runtime: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn translator_project.wsgi:application"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
